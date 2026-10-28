@@ -44,6 +44,7 @@ constexpr uint8_t kSecurityAccessDenied = 0x33;
 constexpr uint8_t kInvalidKey = 0x35;
 constexpr uint8_t kExceedNumberOfAttempts = 0x36;
 constexpr uint8_t kRequiredTimeDelayNotExpired = 0x37;
+constexpr uint8_t kServiceNotSupportedInActiveSession = 0x7F;
 constexpr uint8_t kRequestCorrectlyReceivedResponsePending = 0x78;
 }  // namespace nrc
 

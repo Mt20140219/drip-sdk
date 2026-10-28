@@ -19,6 +19,7 @@ void Run() {
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&store, t]() {
       diag::uds::Session session(&store);
+      session.Handle({0x10, 0x03});
       for (int i = 0; i < kIters; ++i) {
         uint8_t value = static_cast<uint8_t>((t * 7 + i) & 0xFF);
         session.Handle({0x2E, 0xF1, 0x90, value});

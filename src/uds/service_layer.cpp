@@ -25,6 +25,23 @@ constexpr uint16_t kDemoPendingDid = 0xF19E;
 constexpr uint16_t kSeedKeyMask = 0x5AA5;
 constexpr int kMaxAttempts = 3;
 
+bool RequiresNonDefaultSession(uint8_t sid) {
+  switch (sid) {
+    case sid::kClearDiagnosticInformation:
+    case sid::kCommunicationControl:
+    case sid::kDynamicallyDefineDataIdentifier:
+    case sid::kWriteDataByIdentifier:
+    case sid::kInputOutputControlByIdentifier:
+    case sid::kRoutineControl:
+    case sid::kRequestDownload:
+    case sid::kRequestUpload:
+    case sid::kWriteMemoryByAddress:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 void DataStore::SetDidValue(uint16_t did, std::vector<uint8_t> value) {
@@ -97,6 +114,10 @@ std::vector<uint8_t> DataStore::GetScalingData(uint16_t did) const {
 HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
   if (pdu.empty()) return {Negative(0x00, 0x13), false, {}};
   uint8_t sid = pdu[0];
+
+  if (RequiresNonDefaultSession(sid) && state_.session == 0x01) {
+    return {Negative(sid, 0x7F), false, {}};
+  }
 
   switch (sid) {
     case sid::kDiagnosticSessionControl: {

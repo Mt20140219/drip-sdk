@@ -88,6 +88,7 @@ void Run() {
   diag::uds::DataStore store2;
   diag::uds::Session session2(&store2);
   store2.SetDtc(0x123456, 0x2F);
+  session2.Handle({0x10, 0x03});
 
   result = session2.Handle({0x14, 0xFF, 0xFF, 0xFF});
   EXPECT_EQ(result.pdu[0], 0x54);
@@ -159,6 +160,30 @@ void Run() {
 
   result = session2.Handle({0x87, 0x01});
   EXPECT_EQ(result.pdu[0], 0xC7);
+
+  diag::uds::DataStore store3;
+  diag::uds::Session session3(&store3);
+  result = session3.Handle({0x2E, 0xF1, 0x90, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x7F);
+  EXPECT_EQ(result.pdu[2], 0x7F);
+
+  session3.Handle({0x10, 0x03});
+  result = session3.Handle({0x2E, 0xF1});
+  EXPECT_EQ(result.pdu[2], 0x13);
+  result = session3.Handle({0x36, 0x01, 0x00});
+  EXPECT_EQ(result.pdu[2], 0x24);
+  result = session3.Handle({0x37});
+  EXPECT_EQ(result.pdu[2], 0x24);
+  result = session3.Handle({0x23, 0x12, 0xFF, 0xFF, 0xFF});
+  EXPECT_EQ(result.pdu[2], 0x31);
+  result = session3.Handle({0x29, 0x01});
+  EXPECT_EQ(result.pdu[2], 0x12);
+  result = session3.Handle({0x2A, 0x02});
+  EXPECT_EQ(result.pdu[2], 0x12);
+  result = session3.Handle({0x86, 0x01});
+  EXPECT_EQ(result.pdu[2], 0x12);
+  result = session3.Handle({0x87, 0x02});
+  EXPECT_EQ(result.pdu[2], 0x12);
 }
 
 }  // namespace uds_tests
