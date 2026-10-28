@@ -102,10 +102,26 @@ void EntityServer::AcceptLoop() {
       break;
     }
 
+    bool rejected = false;
     {
       std::lock_guard<std::mutex> lk(clients_mu_);
-      client_fds_.push_back(fd);
+      if (client_fds_.size() >= cfg_.max_connections) {
+        rejected = true;
+      } else {
+        client_fds_.push_back(fd);
+      }
     }
+
+    if (rejected) {
+      ::close(fd);
+      if (auto sink = Sink()) {
+        std::lock_guard<std::mutex> lk(LogMutex());
+        sink->onLog(diag::LogLevel::Warning,
+                    "connection rejected: max connections reached");
+      }
+      continue;
+    }
+
     {
       std::lock_guard<std::mutex> lk(threads_mu_);
       client_threads_.emplace_back(&EntityServer::ClientLoop, this, fd);

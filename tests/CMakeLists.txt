@@ -2,6 +2,7 @@ add_executable(diag_tests
     main.cpp
     buffer_test.cpp
     codec_test.cpp
+    concurrency_test.cpp
     uds_test.cpp
 )
 

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -25,6 +26,7 @@ struct EntityConfig {
   uint16_t tcp_port = kDefaultPort;
   uint16_t udp_port = kDefaultPort;
   LogicalAddress logical_address = kDefaultEntityAddress;
+  std::size_t max_connections = 8;
   VehicleInfo vehicle;
   ProtocolVersion version = ProtocolVersion::Iso13400_2012;
   std::chrono::milliseconds inactivity{5000};

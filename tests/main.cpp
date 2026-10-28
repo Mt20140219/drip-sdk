@@ -8,6 +8,10 @@ namespace codec_tests {
 void Run();
 }
 
+namespace concurrency_tests {
+void Run();
+}
+
 namespace uds_tests {
 void Run();
 }
@@ -15,6 +19,7 @@ void Run();
 int main() {
   buffer_tests::Run();
   codec_tests::Run();
+  concurrency_tests::Run();
   uds_tests::Run();
   return test::Summary();
 }
