@@ -111,6 +111,35 @@ std::vector<uint8_t> DataStore::GetScalingData(uint16_t did) const {
   return it->second;
 }
 
+bool DataStore::AddFile(const std::string& name,
+                        const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> lk(mu_);
+  if (files_.count(name) != 0) return false;
+  files_[name] = data;
+  return true;
+}
+
+bool DataStore::ReplaceFile(const std::string& name,
+                            const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> lk(mu_);
+  files_[name] = data;
+  return true;
+}
+
+bool DataStore::DeleteFile(const std::string& name) {
+  std::lock_guard<std::mutex> lk(mu_);
+  return files_.erase(name) != 0;
+}
+
+bool DataStore::ReadFile(const std::string& name,
+                         std::vector<uint8_t>& out) const {
+  std::lock_guard<std::mutex> lk(mu_);
+  auto it = files_.find(name);
+  if (it == files_.end()) return false;
+  out = it->second;
+  return true;
+}
+
 HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
   if (pdu.empty()) return {Negative(0x00, 0x13), false, {}};
   uint8_t sid = pdu[0];
@@ -327,7 +356,7 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       for (std::size_t i = 0; i < size_len; ++i) {
         total = (total << 8) | pdu[3 + addr_len + i];
       }
-      state_.transfer = {true, false, total, 0, 0, address};
+      state_.transfer = {true, false, total, 0, 0, address, {}, {}, 0};
 
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), 0x00, 0xFF};
       return {r, false, {}};
@@ -344,8 +373,17 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
         uint32_t remaining = state_.transfer.total - offset;
         uint32_t block_len = std::min<uint32_t>(remaining, 0xFF);
         std::vector<uint8_t> data;
-        if (!store_->ReadMemory(state_.transfer.address + offset, block_len,
-                                data)) {
+        if (!state_.transfer.file_name.empty()) {
+          std::vector<uint8_t> file;
+          if (!store_->ReadFile(state_.transfer.file_name, file)) {
+            return {Negative(sid, 0x31), false, {}};
+          }
+          if (offset + block_len > file.size()) {
+            block_len = static_cast<uint32_t>(file.size() - offset);
+          }
+          data.assign(file.begin() + offset, file.begin() + offset + block_len);
+        } else if (!store_->ReadMemory(state_.transfer.address + offset,
+                                       block_len, data)) {
           return {Negative(sid, 0x31), false, {}};
         }
         state_.transfer.received += block_len;
@@ -359,12 +397,23 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       }
 
       std::vector<uint8_t> data(pdu.begin() + 2, pdu.end());
+      if (state_.transfer.file_mode != 0) {
+        state_.transfer.file_data.insert(state_.transfer.file_data.end(),
+                                         data.begin(), data.end());
+      }
       state_.transfer.received += static_cast<uint32_t>(data.size());
       state_.transfer.block = counter;
 
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), counter};
       r.insert(r.end(), data.begin(), data.end());
       if (state_.transfer.received >= state_.transfer.total) {
+        if (state_.transfer.file_mode == 0x01) {
+          store_->AddFile(state_.transfer.file_name, state_.transfer.file_data);
+        } else if (state_.transfer.file_mode == 0x03) {
+          store_->ReplaceFile(state_.transfer.file_name,
+                              state_.transfer.file_data);
+        }
+        state_.transfer.file_data.clear();
         state_.transfer.active = false;
       }
       return {r, false, {}};
@@ -372,6 +421,13 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
 
     case sid::kRequestTransferExit: {
       if (!state_.transfer.active) return {Negative(sid, 0x24), false, {}};
+      if (state_.transfer.file_mode == 0x01) {
+        store_->AddFile(state_.transfer.file_name, state_.transfer.file_data);
+      } else if (state_.transfer.file_mode == 0x03) {
+        store_->ReplaceFile(state_.transfer.file_name,
+                            state_.transfer.file_data);
+      }
+      state_.transfer.file_data.clear();
       state_.transfer.active = false;
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40)};
       r.insert(r.end(), pdu.begin() + 1, pdu.end());
@@ -501,7 +557,7 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       for (std::size_t i = 0; i < size_len; ++i) {
         total = (total << 8) | pdu[3 + addr_len + i];
       }
-      state_.transfer = {true, true, total, 0, 0, address};
+      state_.transfer = {true, true, total, 0, 0, address, {}, {}, 0};
 
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), 0x00, 0xFF};
       return {r, false, {}};
@@ -547,6 +603,51 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       if (sub == 0x01 || sub == 0x03) {
         return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
       }
+      return {Negative(sid, 0x12), false, {}};
+    }
+
+    case sid::kRequestFileTransfer: {
+      if (pdu.size() < 3) return {Negative(sid, 0x13), false, {}};
+      uint8_t mode = pdu[1];
+      uint8_t path_len = pdu[2];
+      if (pdu.size() < 3 + static_cast<std::size_t>(path_len)) {
+        return {Negative(sid, 0x13), false, {}};
+      }
+      std::string path(pdu.begin() + 3, pdu.begin() + 3 + path_len);
+
+      if (mode == 0x02) {  // DeleteFile
+        if (!store_->DeleteFile(path)) return {Negative(sid, 0x31), false, {}};
+        return {{static_cast<uint8_t>(sid | 0x40), mode, 0x00, 0x00}, false,
+                {}};
+      }
+
+      if (mode == 0x04) {  // ReadFile
+        std::vector<uint8_t> file;
+        if (!store_->ReadFile(path, file)) {
+          return {Negative(sid, 0x31), false, {}};
+        }
+        state_.transfer = {true, true, static_cast<uint32_t>(file.size()),
+                           0, 0, 0, path, {}, 0};
+        return {{static_cast<uint8_t>(sid | 0x40), mode, 0x00, 0xFF}, false,
+                {}};
+      }
+
+      if (mode == 0x01 || mode == 0x03) {  // AddFile / ReplaceFile
+        std::size_t pos = 3 + static_cast<std::size_t>(path_len);
+        if (pdu.size() < pos + 2) return {Negative(sid, 0x13), false, {}};
+        uint8_t size_len = pdu[pos + 1];
+        if (pdu.size() < pos + 2 + size_len) {
+          return {Negative(sid, 0x13), false, {}};
+        }
+        uint32_t file_size = 0;
+        for (std::size_t i = 0; i < size_len; ++i) {
+          file_size = (file_size << 8) | pdu[pos + 2 + i];
+        }
+        state_.transfer = {true, false, file_size, 0, 0, 0, path, {}, mode};
+        return {{static_cast<uint8_t>(sid | 0x40), mode, 0x00, 0xFF}, false,
+                {}};
+      }
+
       return {Negative(sid, 0x12), false, {}};
     }
 

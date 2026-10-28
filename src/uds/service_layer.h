@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -33,12 +34,18 @@ class DataStore {
   void SetScalingData(uint16_t did, std::vector<uint8_t> value);
   std::vector<uint8_t> GetScalingData(uint16_t did) const;
 
+  bool AddFile(const std::string& name, const std::vector<uint8_t>& data);
+  bool ReplaceFile(const std::string& name, const std::vector<uint8_t>& data);
+  bool DeleteFile(const std::string& name);
+  bool ReadFile(const std::string& name, std::vector<uint8_t>& out) const;
+
  private:
   mutable std::mutex mu_;
   std::unordered_map<uint16_t, std::vector<uint8_t>> dids_;
   std::vector<DtcRecord> dtcs_;
   std::vector<uint8_t> memory_ = std::vector<uint8_t>(kMemorySize, 0);
   std::unordered_map<uint16_t, std::vector<uint8_t>> scaling_;
+  std::unordered_map<std::string, std::vector<uint8_t>> files_;
 };
 
 struct HandleResult {
@@ -76,6 +83,9 @@ class Session {
       uint32_t received = 0;
       uint8_t block = 0;
       uint32_t address = 0;
+      std::string file_name;
+      std::vector<uint8_t> file_data;
+      uint8_t file_mode = 0;
     } transfer;
   };
 

@@ -26,6 +26,7 @@ constexpr uint8_t kRequestDownload = 0x34;
 constexpr uint8_t kRequestUpload = 0x35;
 constexpr uint8_t kTransferData = 0x36;
 constexpr uint8_t kRequestTransferExit = 0x37;
+constexpr uint8_t kRequestFileTransfer = 0x38;
 constexpr uint8_t kTesterPresent = 0x3E;
 constexpr uint8_t kWriteMemoryByAddress = 0x3D;
 constexpr uint8_t kControlDtcSetting = 0x85;

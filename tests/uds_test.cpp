@@ -184,6 +184,20 @@ void Run() {
   EXPECT_EQ(result.pdu[2], 0x12);
   result = session3.Handle({0x87, 0x02});
   EXPECT_EQ(result.pdu[2], 0x12);
+
+  result =
+      session2.Handle({0x38, 0x01, 4, 'f', 'i', 'l', 'e', 0x00, 0x01, 0x04});
+  EXPECT_EQ(result.pdu[0], 0x78);
+  result = session2.Handle({0x36, 0x01, 'A', 'B', 'C', 'D'});
+  EXPECT_EQ(result.pdu[0], 0x76);
+  result = session2.Handle({0x38, 0x04, 4, 'f', 'i', 'l', 'e'});
+  EXPECT_EQ(result.pdu[0], 0x78);
+  result = session2.Handle({0x36, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x76);
+  EXPECT_EQ(result.pdu.size(), 6u);
+  EXPECT_EQ(result.pdu[2], 'A');
+  result = session2.Handle({0x38, 0x02, 4, 'f', 'i', 'l', 'e'});
+  EXPECT_EQ(result.pdu[0], 0x78);
 }
 
 }  // namespace uds_tests
