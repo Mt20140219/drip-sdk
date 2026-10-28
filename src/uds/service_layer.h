@@ -53,6 +53,15 @@ class Session {
     uint16_t seed = 0;
     int attempts = 0;
     std::chrono::steady_clock::time_point lockout_until{};
+    uint8_t dtc_setting = 0x01;
+    bool comm_enabled = true;
+    std::unordered_map<uint16_t, uint8_t> routines;
+    struct {
+      bool active = false;
+      uint32_t total = 0;
+      uint32_t received = 0;
+      uint8_t block = 0;
+    } transfer;
   };
 
   DataStore* store_;

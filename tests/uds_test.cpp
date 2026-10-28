@@ -84,6 +84,42 @@ void Run() {
   result = session.Handle({0x22, 0xF1, 0x9E});
   EXPECT(result.pending_first);
   EXPECT_EQ(result.pdu[0], 0x62);
+
+  diag::uds::DataStore store2;
+  diag::uds::Session session2(&store2);
+  store2.SetDtc(0x123456, 0x2F);
+
+  result = session2.Handle({0x14, 0xFF, 0xFF, 0xFF});
+  EXPECT_EQ(result.pdu[0], 0x54);
+  EXPECT_EQ(store2.GetDtcs().size(), 0u);
+
+  result = session2.Handle({0x28, 0x03});
+  EXPECT_EQ(result.pdu[0], 0x68);
+
+  result = session2.Handle({0x2E, 0xF1, 0x90, 'V', 'I', 'N'});
+  EXPECT_EQ(result.pdu[0], 0x6E);
+  result = session2.Handle({0x22, 0xF1, 0x90});
+  EXPECT_EQ(result.pdu.size(), 6u);
+  EXPECT_EQ(result.pdu[3], 'V');
+
+  result = session2.Handle({0x2F, 0xF1, 0x90, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x6F);
+
+  result = session2.Handle({0x31, 0x01, 0x12, 0x34});
+  EXPECT_EQ(result.pdu[0], 0x71);
+  EXPECT_EQ(result.pdu[4], 0x01);
+  result = session2.Handle({0x31, 0x03, 0x12, 0x34});
+  EXPECT_EQ(result.pdu[4], 0x03);
+
+  result = session2.Handle({0x34, 0x00, 0x11, 0x00, 0x08});
+  EXPECT_EQ(result.pdu[0], 0x74);
+  result = session2.Handle({0x36, 0x01, 0xAA, 0xBB, 0xCC, 0xDD});
+  EXPECT_EQ(result.pdu[0], 0x76);
+  result = session2.Handle({0x37});
+  EXPECT_EQ(result.pdu[0], 0x77);
+
+  result = session2.Handle({0x85, 0x02});
+  EXPECT_EQ(result.pdu[0], 0xC5);
 }
 
 }  // namespace uds_tests

@@ -194,6 +194,114 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       return {Negative(sid, 0x12), false, {}};
     }
 
+    case sid::kClearDiagnosticInformation: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      store_->ClearDtcs();
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40)};
+      r.insert(r.end(), pdu.begin() + 1, pdu.begin() + 4);
+      return {r, false, {}};
+    }
+
+    case sid::kCommunicationControl: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+      if (sub > 0x03) return {Negative(sid, 0x12), false, {}};
+      state_.comm_enabled = (sub == 0x00);
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub};
+      return {r, false, {}};
+    }
+
+    case sid::kWriteDataByIdentifier: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      uint16_t did = ReadU16(pdu, 1);
+      std::vector<uint8_t> value(pdu.begin() + 3, pdu.end());
+      store_->SetDidValue(did, value);
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40),
+                             static_cast<uint8_t>((did >> 8) & 0xFF),
+                             static_cast<uint8_t>(did & 0xFF)};
+      return {r, false, {}};
+    }
+
+    case sid::kInputOutputControlByIdentifier: {
+      if (pdu.size() < 3) return {Negative(sid, 0x13), false, {}};
+      uint16_t did = ReadU16(pdu, 1);
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40),
+                             static_cast<uint8_t>((did >> 8) & 0xFF),
+                             static_cast<uint8_t>(did & 0xFF)};
+      r.insert(r.end(), pdu.begin() + 3, pdu.end());
+      return {r, false, {}};
+    }
+
+    case sid::kRoutineControl: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+      if (sub != 0x01 && sub != 0x02 && sub != 0x03) {
+        return {Negative(sid, 0x12), false, {}};
+      }
+      uint16_t routine = ReadU16(pdu, 2);
+      uint8_t status = (sub == 0x01) ? 0x01 : ((sub == 0x02) ? 0x02 : 0x03);
+      state_.routines[routine] = status;
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub,
+                             static_cast<uint8_t>((routine >> 8) & 0xFF),
+                             static_cast<uint8_t>(routine & 0xFF), status};
+      if (sub == 0x03) {
+        r.insert(r.end(), pdu.begin() + 4, pdu.end());
+      }
+      return {r, false, {}};
+    }
+
+    case sid::kRequestDownload: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      uint8_t alf = pdu[2];
+      std::size_t addr_len = static_cast<std::size_t>((alf >> 4) & 0x0F);
+      std::size_t size_len = static_cast<std::size_t>(alf & 0x0F);
+      std::size_t expected = 3 + addr_len + size_len;
+      if (pdu.size() < expected) return {Negative(sid, 0x13), false, {}};
+
+      uint32_t total = 0;
+      for (std::size_t i = 0; i < size_len; ++i) {
+        total = (total << 8) | pdu[3 + addr_len + i];
+      }
+      state_.transfer = {true, total, 0, 0};
+
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), 0x00, 0xFF};
+      return {r, false, {}};
+    }
+
+    case sid::kTransferData: {
+      if (!state_.transfer.active) return {Negative(sid, 0x24), false, {}};
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+
+      uint8_t counter = pdu[1];
+      std::vector<uint8_t> data(pdu.begin() + 2, pdu.end());
+      state_.transfer.received += static_cast<uint32_t>(data.size());
+      state_.transfer.block = counter;
+
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), counter};
+      r.insert(r.end(), data.begin(), data.end());
+      if (state_.transfer.received >= state_.transfer.total) {
+        state_.transfer.active = false;
+      }
+      return {r, false, {}};
+    }
+
+    case sid::kRequestTransferExit: {
+      if (!state_.transfer.active) return {Negative(sid, 0x24), false, {}};
+      state_.transfer.active = false;
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40)};
+      r.insert(r.end(), pdu.begin() + 1, pdu.end());
+      return {r, false, {}};
+    }
+
+    case sid::kControlDtcSetting: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+      if (sub != 0x01 && sub != 0x02) return {Negative(sid, 0x12), false, {}};
+      state_.dtc_setting = sub;
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub};
+      return {r, false, {}};
+    }
+
     default:
       return {Negative(sid, 0x11), false, {}};
   }
