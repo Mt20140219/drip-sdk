@@ -484,10 +484,45 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
 
     case sid::kAuthentication: {
       if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
-      if (pdu[1] == 0x00) {
-        state_.security_level = 0x00;
+      uint8_t sub = pdu[1];
+
+      if (sub == 0x00) {  // deAuthenticate
+        state_.authenticated = false;
         return {{static_cast<uint8_t>(sid | 0x40), 0x00}, false, {}};
       }
+
+      if (sub == 0x01 || sub == 0x02) {  // verifyCertificateUni/Bidirectional
+        if (pdu.size() < 3) return {Negative(sid, 0x13), false, {}};
+        uint8_t cc = pdu[2];
+        state_.authenticated = true;
+        state_.auth_config = cc;
+        std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub, cc,
+                               0x00, 0x00};
+        return {r, false, {}};
+      }
+
+      if (sub == 0x03) {  // proofOfOwnership
+        if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+        uint8_t cc = pdu[2];
+        uint8_t algorithm = pdu[3];
+        state_.authenticated = true;
+        state_.auth_config = cc;
+        std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub, cc,
+                               algorithm, 0x00, 0x00};
+        return {r, false, {}};
+      }
+
+      if (sub == 0x04) {  // authenticationConfiguration
+        if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+        uint8_t cc = pdu[2];
+        uint8_t option = pdu[3];
+        state_.auth_config = cc;
+        state_.authenticated = false;
+        std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub, cc,
+                               option};
+        return {r, false, {}};
+      }
+
       return {Negative(sid, 0x12), false, {}};
     }
 

@@ -64,11 +64,14 @@ class Session {
 
   uint8_t active_session() const { return state_.session; }
   uint8_t security_level() const { return state_.security_level; }
+  bool authenticated() const { return state_.authenticated; }
 
  private:
   struct State {
     uint8_t session = 0x01;
     uint8_t security_level = 0x00;
+    bool authenticated = false;
+    uint8_t auth_config = 0;
     uint16_t seed = 0;
     int attempts = 0;
     std::chrono::steady_clock::time_point lockout_until{};

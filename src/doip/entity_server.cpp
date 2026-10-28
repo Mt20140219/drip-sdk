@@ -288,6 +288,7 @@ void EntityServer::HandleDiagnostic(int fd, const Message& msg,
     diag::uds::RequestContext ctx{source, target, functional,
                                   session.active_session(),
                                   session.security_level(),
+                                  session.authenticated(),
                                   std::chrono::steady_clock::now()};
     std::vector<uint8_t> params(uds.begin() + 1, uds.end());
     diag::uds::ServiceResponse sr;

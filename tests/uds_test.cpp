@@ -176,7 +176,7 @@ void Run() {
   EXPECT_EQ(result.pdu[2], 0x24);
   result = session3.Handle({0x23, 0x12, 0xFF, 0xFF, 0xFF});
   EXPECT_EQ(result.pdu[2], 0x31);
-  result = session3.Handle({0x29, 0x01});
+  result = session3.Handle({0x29, 0x05});
   EXPECT_EQ(result.pdu[2], 0x12);
   result = session3.Handle({0x2A, 0x02});
   EXPECT_EQ(result.pdu[2], 0x12);
@@ -184,6 +184,22 @@ void Run() {
   EXPECT_EQ(result.pdu[2], 0x12);
   result = session3.Handle({0x87, 0x02});
   EXPECT_EQ(result.pdu[2], 0x12);
+
+  result = session3.Handle({0x29, 0x01, 0x00});
+  EXPECT_EQ(result.pdu[0], 0x69);
+  EXPECT_EQ(result.pdu[1], 0x01);
+  EXPECT(session3.authenticated());
+
+  result = session3.Handle({0x29, 0x03, 0x00, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x69);
+  EXPECT_EQ(result.pdu[1], 0x03);
+
+  result = session3.Handle({0x29, 0x04, 0x00, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x69);
+  EXPECT(!session3.authenticated());
+
+  result = session3.Handle({0x29, 0x00});
+  EXPECT_EQ(result.pdu[0], 0x69);
 
   result =
       session2.Handle({0x38, 0x01, 4, 'f', 'i', 'l', 'e', 0x00, 0x01, 0x04});

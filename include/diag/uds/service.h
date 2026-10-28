@@ -15,6 +15,7 @@ struct RequestContext {
   bool functional = false;
   uint8_t active_session = 0x01;
   uint8_t security_level = 0x00;
+  bool authenticated = false;
   std::chrono::steady_clock::time_point rx_time{};
 };
 
