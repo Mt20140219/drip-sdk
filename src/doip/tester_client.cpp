@@ -179,13 +179,58 @@ Error TesterClient::Disconnect() {
 
 Error TesterClient::Send(const diag::uds::Request& req,
                          diag::uds::Response& resp) {
+  return SendDiagnostic(req, resp, target_, false);
+}
+
+Error TesterClient::SendFunctional(const diag::uds::Request& req,
+                                   diag::uds::Response& resp) {
+  return SendDiagnostic(req, resp, cfg_.functional_address, true);
+}
+
+Error TesterClient::SendDiagnostic(const diag::uds::Request& req,
+                                   diag::uds::Response& resp,
+                                   LogicalAddress target, bool functional) {
   if (fd_ < 0) return Error::kNotRunning;
 
   const std::vector<uint8_t>& pdu = req.pdu();
   if (!SendMessage(PayloadType::DiagnosticMessage,
-                   BuildDiagnosticMessage(cfg_.logical_address, target_,
+                   BuildDiagnosticMessage(cfg_.logical_address, target,
                                           pdu.data(), pdu.size()))) {
     return Error::kConnectionClosed;
+  }
+
+  if (functional) {
+    auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    while (std::chrono::steady_clock::now() < deadline) {
+      auto now = std::chrono::steady_clock::now();
+      auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+          deadline - now);
+      Message msg;
+      Error err = WaitForAny(
+          {PayloadType::DiagnosticMessage,
+           PayloadType::DiagnosticMessageNegativeAck}, msg, remaining);
+      if (err == Error::kTimeout) {
+        resp = diag::uds::Response();
+        return Error::kOk;
+      }
+      if (err != Error::kOk) return err;
+      if (msg.type == PayloadType::DiagnosticMessageNegativeAck) {
+        return Error::kDoipNack;
+      }
+
+      uint16_t source = 0;
+      uint16_t target_addr = 0;
+      std::vector<uint8_t> uds;
+      if (!ParseDiagnosticMessage(msg.payload, source, target_addr, uds) ||
+          uds.empty()) {
+        return Error::kInternal;
+      }
+      resp = diag::uds::Response(std::move(uds));
+      return Error::kOk;
+    }
+    resp = diag::uds::Response();
+    return Error::kOk;
   }
 
   auto deadline = std::chrono::steady_clock::now() + cfg_.timing.p2_star;
@@ -253,6 +298,10 @@ void TesterClient::ReaderLoop() {
     if (msg.type == PayloadType::AliveCheckResponse) {
       std::lock_guard<std::mutex> lk(mu_);
       last_alive_ = std::chrono::steady_clock::now();
+      continue;
+    }
+
+    if (msg.type == PayloadType::DiagnosticMessagePositiveAck) {
       continue;
     }
 

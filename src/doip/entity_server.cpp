@@ -255,13 +255,15 @@ void EntityServer::HandleDiagnostic(int fd, const Message& msg,
     return;
   }
 
+  bool functional = (target == cfg_.functional_address);
+
   if (!routing_active) {
     Send(fd, PayloadType::DiagnosticMessageNegativeAck,
          BuildDiagnosticNack(cfg_.logical_address, source, 0x04));
     return;
   }
 
-  if (target != cfg_.logical_address) {
+  if (target != cfg_.logical_address && !functional) {
     Send(fd, PayloadType::DiagnosticMessageNegativeAck,
          BuildDiagnosticNack(cfg_.logical_address, source, 0x01));
     return;
@@ -283,7 +285,7 @@ void EntityServer::HandleDiagnostic(int fd, const Message& msg,
   }
 
   if (handler) {
-    diag::uds::RequestContext ctx{source, target, false,
+    diag::uds::RequestContext ctx{source, target, functional,
                                   session.active_session(),
                                   session.security_level(),
                                   std::chrono::steady_clock::now()};
@@ -303,7 +305,12 @@ void EntityServer::HandleDiagnostic(int fd, const Message& msg,
     delay = result.delay;
   }
 
-  if (pending_first) {
+  bool positive_response = !resp.empty() && resp[0] != 0x7F;
+  if (functional && positive_response) {
+    return;  // Functional requests suppress positive responses.
+  }
+
+  if (pending_first && !functional) {
     std::vector<uint8_t> pending = {0x7F, sid, 0x78};
     Send(fd, PayloadType::DiagnosticMessage,
          BuildDiagnosticMessage(cfg_.logical_address, source, pending.data(),

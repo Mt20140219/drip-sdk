@@ -17,6 +17,7 @@ struct NodeConfig {
   uint16_t tcp_port = doip::kDefaultPort;
   uint16_t udp_port = doip::kDefaultPort;
   LogicalAddress logical_address = 0;
+  LogicalAddress functional_address = 0x0FFF;
   std::size_t max_connections = 8;
   VehicleInfo vehicle;
   doip::ProtocolVersion doip_version = doip::ProtocolVersion::Iso13400_2012;

@@ -29,6 +29,7 @@ class TesterNode {
   Error routingActivate(doip::ActivationType type);
   Error disconnect();
   Error send(const uds::Request& req, uds::Response& resp);
+  Error sendFunctional(const uds::Request& req, uds::Response& resp);
 
   void setSink(std::shared_ptr<EventSink> sink);
 

@@ -26,6 +26,7 @@ struct EntityConfig {
   uint16_t tcp_port = kDefaultPort;
   uint16_t udp_port = kDefaultPort;
   LogicalAddress logical_address = kDefaultEntityAddress;
+  LogicalAddress functional_address = 0x0FFF;
   std::size_t max_connections = 8;
   VehicleInfo vehicle;
   ProtocolVersion version = ProtocolVersion::Iso13400_2012;

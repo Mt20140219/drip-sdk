@@ -14,6 +14,7 @@ class EcuNode::Impl {
     c.tcp_port = cfg.tcp_port;
     c.udp_port = cfg.udp_port;
     c.logical_address = cfg.logical_address;
+    c.functional_address = cfg.functional_address;
     c.max_connections = cfg.max_connections;
     c.vehicle = cfg.vehicle;
     c.version = cfg.doip_version;

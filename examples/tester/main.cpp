@@ -178,6 +178,17 @@ int main() {
     send(req);
   }
 
+  std::printf("tester: functional TesterPresent (3E 00 -> functional)\n");
+  {
+    diag::uds::Request req(diag::uds::sid::kTesterPresent);
+    req.push_u8(0x00);
+    diag::uds::Response resp;
+    err = node.sendFunctional(req, resp);
+    std::printf("  functional send -> %s, response %s\n",
+                diag::ErrorToString(err),
+                resp.empty() ? "suppressed (none)" : "received");
+  }
+
   std::printf("tester: keeping routing active for 2s (alive checks)\n");
   std::fflush(stdout);
   std::this_thread::sleep_for(std::chrono::seconds(2));

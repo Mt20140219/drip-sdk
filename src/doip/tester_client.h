@@ -26,6 +26,7 @@ struct TesterConfig {
   uint16_t tcp_port = kDefaultPort;
   uint16_t udp_port = kDefaultPort;
   LogicalAddress logical_address = kDefaultTesterAddress;
+  LogicalAddress functional_address = 0x0FFF;
   ProtocolVersion version = ProtocolVersion::Iso13400_2012;
   Timing timing;
 };
@@ -49,12 +50,17 @@ class TesterClient {
   Error RoutingActivate(ActivationType type);
   Error Disconnect();
   Error Send(const diag::uds::Request& req, diag::uds::Response& resp);
+  Error SendFunctional(const diag::uds::Request& req,
+                       diag::uds::Response& resp);
 
  private:
   void ReaderLoop();
   void AliveLoop();
 
   bool SendMessage(PayloadType type, const std::vector<uint8_t>& payload);
+  Error SendDiagnostic(const diag::uds::Request& req,
+                       diag::uds::Response& resp, LogicalAddress target,
+                       bool functional);
   Error WaitForAny(const std::vector<PayloadType>& types, Message& out,
                    std::chrono::milliseconds timeout);
   std::shared_ptr<diag::EventSink> Sink() const;

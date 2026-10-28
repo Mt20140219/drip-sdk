@@ -14,6 +14,7 @@ class TesterNode::Impl {
     c.tcp_port = cfg.tcp_port;
     c.udp_port = cfg.udp_port;
     c.logical_address = cfg.logical_address;
+    c.functional_address = cfg.functional_address;
     c.version = cfg.doip_version;
     c.timing = cfg.timing;
     client_ = std::make_unique<doip::TesterClient>(std::move(c));
@@ -48,6 +49,11 @@ Error TesterNode::disconnect() { return impl_->client_->Disconnect(); }
 
 Error TesterNode::send(const uds::Request& req, uds::Response& resp) {
   return impl_->client_->Send(req, resp);
+}
+
+Error TesterNode::sendFunctional(const uds::Request& req,
+                                 uds::Response& resp) {
+  return impl_->client_->SendFunctional(req, resp);
 }
 
 void TesterNode::setSink(std::shared_ptr<EventSink> sink) {
