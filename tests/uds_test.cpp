@@ -120,6 +120,45 @@ void Run() {
 
   result = session2.Handle({0x85, 0x02});
   EXPECT_EQ(result.pdu[0], 0xC5);
+
+  result = session2.Handle({0x3D, 0x11, 0x00, 0xAA, 0xBB, 0xCC});
+  EXPECT_EQ(result.pdu[0], 0x7D);
+  result = session2.Handle({0x23, 0x12, 0x00, 0x00, 0x03});
+  EXPECT_EQ(result.pdu[0], 0x63);
+  EXPECT_EQ(result.pdu.size(), 4u);
+  EXPECT_EQ(result.pdu[1], 0xAA);
+  EXPECT_EQ(result.pdu[3], 0xCC);
+
+  store2.SetScalingData(0x7001, {0x01, 0x02});
+  result = session2.Handle({0x24, 0x70, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x64);
+  EXPECT_EQ(result.pdu[3], 0x01);
+
+  result = session2.Handle({0x2C, 0x02, 0xF2, 0x00, 0x11, 0x00, 0x02});
+  EXPECT_EQ(result.pdu[0], 0x6C);
+  result = session2.Handle({0x22, 0xF2, 0x00});
+  EXPECT_EQ(result.pdu[0], 0x62);
+  EXPECT_EQ(result.pdu.size(), 5u);
+  EXPECT_EQ(result.pdu[3], 0xAA);
+  EXPECT_EQ(result.pdu[4], 0xBB);
+
+  result = session2.Handle({0x35, 0x00, 0x11, 0x00, 0x04});
+  EXPECT_EQ(result.pdu[0], 0x75);
+  result = session2.Handle({0x36, 0x01});
+  EXPECT_EQ(result.pdu[0], 0x76);
+  EXPECT_EQ(result.pdu.size(), 6u);
+
+  result = session2.Handle({0x29, 0x00});
+  EXPECT_EQ(result.pdu[0], 0x69);
+
+  result = session2.Handle({0x2A, 0x01, 0x02});
+  EXPECT_EQ(result.pdu[0], 0x6A);
+
+  result = session2.Handle({0x86, 0x00});
+  EXPECT_EQ(result.pdu[0], 0xC6);
+
+  result = session2.Handle({0x87, 0x01});
+  EXPECT_EQ(result.pdu[0], 0xC7);
 }
 
 }  // namespace uds_tests

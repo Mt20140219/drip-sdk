@@ -60,6 +60,40 @@ std::vector<DtcRecord> DataStore::GetDtcs() const {
   return dtcs_;
 }
 
+bool DataStore::ReadMemory(uint32_t address, uint32_t length,
+                           std::vector<uint8_t>& out) const {
+  std::lock_guard<std::mutex> lk(mu_);
+  if (static_cast<std::size_t>(address) + length > memory_.size()) {
+    return false;
+  }
+  out.assign(memory_.begin() + address, memory_.begin() + address + length);
+  return true;
+}
+
+bool DataStore::WriteMemory(uint32_t address, const uint8_t* data,
+                            uint32_t length) {
+  std::lock_guard<std::mutex> lk(mu_);
+  if (static_cast<std::size_t>(address) + length > memory_.size()) {
+    return false;
+  }
+  for (uint32_t i = 0; i < length; ++i) {
+    memory_[address + i] = data[i];
+  }
+  return true;
+}
+
+void DataStore::SetScalingData(uint16_t did, std::vector<uint8_t> value) {
+  std::lock_guard<std::mutex> lk(mu_);
+  scaling_[did] = std::move(value);
+}
+
+std::vector<uint8_t> DataStore::GetScalingData(uint16_t did) const {
+  std::lock_guard<std::mutex> lk(mu_);
+  auto it = scaling_.find(did);
+  if (it == scaling_.end()) return {};
+  return it->second;
+}
+
 HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
   if (pdu.empty()) return {Negative(0x00, 0x13), false, {}};
   uint8_t sid = pdu[0];
@@ -97,7 +131,13 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       }
 
       std::vector<uint8_t> value = store_->GetDidValue(did);
-      if (value.empty()) return {Negative(sid, 0x31), false, {}};
+      if (value.empty()) {
+        auto it = state_.dynamic_dids.find(did);
+        if (it == state_.dynamic_dids.end() ||
+            !store_->ReadMemory(it->second.first, it->second.second, value)) {
+          return {Negative(sid, 0x31), false, {}};
+        }
+      }
 
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40),
                              static_cast<uint8_t>((did >> 8) & 0xFF),
@@ -258,11 +298,15 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       std::size_t expected = 3 + addr_len + size_len;
       if (pdu.size() < expected) return {Negative(sid, 0x13), false, {}};
 
+      uint32_t address = 0;
+      for (std::size_t i = 0; i < addr_len; ++i) {
+        address = (address << 8) | pdu[3 + i];
+      }
       uint32_t total = 0;
       for (std::size_t i = 0; i < size_len; ++i) {
         total = (total << 8) | pdu[3 + addr_len + i];
       }
-      state_.transfer = {true, total, 0, 0};
+      state_.transfer = {true, false, total, 0, 0, address};
 
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), 0x00, 0xFF};
       return {r, false, {}};
@@ -271,8 +315,28 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
     case sid::kTransferData: {
       if (!state_.transfer.active) return {Negative(sid, 0x24), false, {}};
       if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
-
       uint8_t counter = pdu[1];
+
+      if (state_.transfer.upload) {
+        if (pdu.size() != 2) return {Negative(sid, 0x13), false, {}};
+        uint32_t offset = state_.transfer.received;
+        uint32_t remaining = state_.transfer.total - offset;
+        uint32_t block_len = std::min<uint32_t>(remaining, 0xFF);
+        std::vector<uint8_t> data;
+        if (!store_->ReadMemory(state_.transfer.address + offset, block_len,
+                                data)) {
+          return {Negative(sid, 0x31), false, {}};
+        }
+        state_.transfer.received += block_len;
+        state_.transfer.block = counter;
+        std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), counter};
+        r.insert(r.end(), data.begin(), data.end());
+        if (state_.transfer.received >= state_.transfer.total) {
+          state_.transfer.active = false;
+        }
+        return {r, false, {}};
+      }
+
       std::vector<uint8_t> data(pdu.begin() + 2, pdu.end());
       state_.transfer.received += static_cast<uint32_t>(data.size());
       state_.transfer.block = counter;
@@ -300,6 +364,169 @@ HandleResult Session::Handle(const std::vector<uint8_t>& pdu) {
       state_.dtc_setting = sub;
       std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), sub};
       return {r, false, {}};
+    }
+
+    case sid::kReadMemoryByAddress: {
+      if (pdu.size() < 3) return {Negative(sid, 0x13), false, {}};
+      uint8_t alf = pdu[1];
+      std::size_t addr_len = (alf >> 4) & 0x0F;
+      std::size_t size_len = alf & 0x0F;
+      if (pdu.size() < 2 + addr_len + size_len) {
+        return {Negative(sid, 0x13), false, {}};
+      }
+
+      uint32_t address = 0;
+      for (std::size_t i = 0; i < addr_len; ++i) {
+        address = (address << 8) | pdu[2 + i];
+      }
+      uint32_t length = 0;
+      for (std::size_t i = 0; i < size_len; ++i) {
+        length = (length << 8) | pdu[2 + addr_len + i];
+      }
+
+      std::vector<uint8_t> data;
+      if (!store_->ReadMemory(address, length, data)) {
+        return {Negative(sid, 0x31), false, {}};
+      }
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40)};
+      r.insert(r.end(), data.begin(), data.end());
+      return {r, false, {}};
+    }
+
+    case sid::kReadScalingDataByIdentifier: {
+      if (pdu.size() < 3) return {Negative(sid, 0x13), false, {}};
+      uint16_t did = ReadU16(pdu, 1);
+      std::vector<uint8_t> value = store_->GetScalingData(did);
+      if (value.empty()) return {Negative(sid, 0x31), false, {}};
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40),
+                             static_cast<uint8_t>((did >> 8) & 0xFF),
+                             static_cast<uint8_t>(did & 0xFF)};
+      r.insert(r.end(), value.begin(), value.end());
+      return {r, false, {}};
+    }
+
+    case sid::kAuthentication: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      if (pdu[1] == 0x00) {
+        state_.security_level = 0x00;
+        return {{static_cast<uint8_t>(sid | 0x40), 0x00}, false, {}};
+      }
+      return {Negative(sid, 0x12), false, {}};
+    }
+
+    case sid::kReadDataByPeriodicIdentifier: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t mode = pdu[1];
+      if (mode == 0x00 || mode == 0x01) {
+        std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), mode};
+        if (pdu.size() >= 3) r.push_back(pdu[2]);
+        return {r, false, {}};
+      }
+      return {Negative(sid, 0x12), false, {}};
+    }
+
+    case sid::kDynamicallyDefineDataIdentifier: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+
+      if (sub == 0x01) {
+        return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
+      }
+      if (sub == 0x02) {
+        if (pdu.size() < 5) return {Negative(sid, 0x13), false, {}};
+        uint16_t did = ReadU16(pdu, 2);
+        uint8_t alf = pdu[4];
+        std::size_t addr_len = (alf >> 4) & 0x0F;
+        std::size_t size_len = alf & 0x0F;
+        if (pdu.size() < 5 + addr_len + size_len) {
+          return {Negative(sid, 0x13), false, {}};
+        }
+        uint32_t address = 0;
+        for (std::size_t i = 0; i < addr_len; ++i) {
+          address = (address << 8) | pdu[5 + i];
+        }
+        uint32_t length = 0;
+        for (std::size_t i = 0; i < size_len; ++i) {
+          length = (length << 8) | pdu[5 + addr_len + i];
+        }
+        state_.dynamic_dids[did] = {address, static_cast<uint16_t>(length)};
+        return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
+      }
+      if (sub == 0x03) {
+        if (pdu.size() >= 4) {
+          state_.dynamic_dids.erase(ReadU16(pdu, 2));
+        } else {
+          state_.dynamic_dids.clear();
+        }
+        return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
+      }
+      return {Negative(sid, 0x12), false, {}};
+    }
+
+    case sid::kRequestUpload: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      uint8_t alf = pdu[2];
+      std::size_t addr_len = (alf >> 4) & 0x0F;
+      std::size_t size_len = alf & 0x0F;
+      if (pdu.size() < 3 + addr_len + size_len) {
+        return {Negative(sid, 0x13), false, {}};
+      }
+
+      uint32_t address = 0;
+      for (std::size_t i = 0; i < addr_len; ++i) {
+        address = (address << 8) | pdu[3 + i];
+      }
+      uint32_t total = 0;
+      for (std::size_t i = 0; i < size_len; ++i) {
+        total = (total << 8) | pdu[3 + addr_len + i];
+      }
+      state_.transfer = {true, true, total, 0, 0, address};
+
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), 0x00, 0xFF};
+      return {r, false, {}};
+    }
+
+    case sid::kWriteMemoryByAddress: {
+      if (pdu.size() < 4) return {Negative(sid, 0x13), false, {}};
+      uint8_t alf = pdu[1];
+      std::size_t addr_len = (alf >> 4) & 0x0F;
+      if (pdu.size() < 2 + addr_len + 1) {
+        return {Negative(sid, 0x13), false, {}};
+      }
+
+      uint32_t address = 0;
+      for (std::size_t i = 0; i < addr_len; ++i) {
+        address = (address << 8) | pdu[2 + i];
+      }
+      const uint8_t* data = pdu.data() + 2 + addr_len;
+      std::size_t length = pdu.size() - 2 - addr_len;
+      if (!store_->WriteMemory(address, data, static_cast<uint32_t>(length))) {
+        return {Negative(sid, 0x31), false, {}};
+      }
+
+      std::vector<uint8_t> r{static_cast<uint8_t>(sid | 0x40), alf};
+      for (std::size_t i = 0; i < addr_len; ++i) {
+        r.push_back(pdu[2 + i]);
+      }
+      return {r, false, {}};
+    }
+
+    case sid::kResponseOnEvent: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+      if (sub == 0x00 || sub == 0x04 || sub == 0x05 || sub == 0x06) {
+        return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
+      }
+      return {Negative(sid, 0x12), false, {}};
+    }
+
+    case sid::kLinkControl: {
+      if (pdu.size() < 2) return {Negative(sid, 0x13), false, {}};
+      uint8_t sub = pdu[1];
+      if (sub == 0x01 || sub == 0x03) {
+        return {{static_cast<uint8_t>(sid | 0x40), sub}, false, {}};
+      }
+      return {Negative(sid, 0x12), false, {}};
     }
 
     default:
